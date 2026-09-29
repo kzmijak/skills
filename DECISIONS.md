@@ -38,7 +38,7 @@ An earlier revision (see Deferred) removed the upstream ephemeral-environment ma
 
 ## Tracker abstraction
 
-No skill calls a tracker CLI or API directly. Skills name **tracker operations** (**get-issue**, **create-pr**, **comment-pr**, **merge-pr**, …) and a single committed descriptor file, `.ai/trackers/<tracker>.md` — selected by the config's `tracker` field and installed by `om-setup-agent-pipeline` — defines how each operation executes. The collection ships GitHub end-to-end plus Linear/GitHub and Jira Cloud/GitHub split descriptors, alongside `TEMPLATE.md` for new providers. The descriptor is a markdown instruction layer rather than code on purpose: it is read by the agent at runtime, so it works identically across coding agents, and the repo's committed copy is the override point — teams edit it to extend or replace any operation, the same "local file wins" model as repo-local skills. Split setups implement issue operations against the issue tracker and delegate repository, PR, review, CI, and PR-label sections to the companion GitHub descriptor. An earlier design kept `gh` calls inline in the skills and deferred extraction until a second provider existed; the extraction was pulled forward because inline calls made every skill GitHub-shaped and blocked the drop-in/override story. CI now enforces the layer: the lint gate rejects `gh` commands inside `skills/**` outside the shipped tracker descriptors.
+No skill calls a tracker CLI or API directly. Skills name **tracker operations** (**get-issue**, **create-pr**, **comment-pr**, **merge-pr**, …) and a single committed descriptor file, `.ai/trackers/<tracker>.md` — selected by the config's `tracker` field and installed by `om-setup-agent-pipeline` — defines how each operation executes. The collection ships GitHub and GitLab end-to-end plus Linear/GitHub and Jira Cloud/GitHub split descriptors, alongside `TEMPLATE.md` for new providers. The descriptor is a markdown instruction layer rather than code on purpose: it is read by the agent at runtime, so it works identically across coding agents, and the repo's committed copy is the override point — teams edit it to extend or replace any operation, the same "local file wins" model as repo-local skills. Split setups implement issue operations against the issue tracker and delegate repository, PR, review, CI, and PR-label sections to the companion GitHub descriptor. An earlier design kept `gh` calls inline in the skills and deferred extraction until a second provider existed; the extraction was pulled forward because inline calls made every skill GitHub-shaped and blocked the drop-in/override story. CI now enforces the layer: the lint gate rejects `gh` and `glab` commands inside `skills/**` outside the shipped tracker descriptors.
 
 ## Browser-provider abstraction
 
@@ -403,3 +403,41 @@ the current head before `blocked` is removed. This records the agreed coordinati
 change without treating source provenance, green tests, or @matgren's acceptance
 as a substitute for that review. Upstream #5832 can proceed independently once
 this revised condition is confirmed.
+
+## 2026-09-22 — GitLab ships as a stand-alone tracker provider
+
+`gitlab.md` is the first shipped descriptor for a code host other than GitHub. Unlike Linear and Jira it is not a split provider: GitLab owns issues, merge requests, reviews, pipelines, and labels, so the descriptor implements every operation itself and setup installs no companion. The tracker operation contract, operation names, config schema, and chaining-line shapes are unchanged — no skill had to learn GitLab.
+
+Four choices keep it that way. **Serialize into the shapes skills already parse:** `get-pr` maps a merge request onto the GitHub-shaped field set (`OPEN`/`CLOSED`/`MERGED`, `mergeStateStatus`, `reviewDecision`, `closingIssuesReferences`, per-file additions), so consumers never branch on the tracker; the `PR: #<iid>` chaining line keeps its shape even though GitLab writes MRs as `!<iid>`. **REST through `glab api`, not convenience verbs:** every call is a v4 REST path and every mutation touches only the fields it changes (`add_labels`, `remove_labels`, `assignee_ids`), the same narrowest-surface rule `github.md` learned from the Projects (classic) failure; `auth-check` probes the `glab api` flags rather than pinning a version. **Honest verdicts:** approval is GitLab's native approval, but "request changes" has no REST verdict on every tier, so each verdict is also a note opening with a hidden `<!-- review: … -->` marker, and `reviewDecision` combines native approvals, GitLab's reviewer "requested changes" state, and the `changes-requested` pipeline label. **Conservative CI:** GitLab has no per-branch required-check list, so `get-required-checks` reports the contract's "unreadable" case and every head-pipeline job counts, with `allow_failure` failures reported `NEUTRAL` because GitLab itself does not block on them. Issues and MRs are separate number spaces, so comment ids are parent-qualified handles (`merge_requests/<iid>/<noteId>`).
+
+The descriptor's shell and jq are executed in CI against a stubbed `glab` (`scripts/test-tracker-providers.mjs`), since no live GitLab instance is part of the gate. Left for later: Linear and Jira still require the GitHub companion; letting a split provider name `gitlab.md` as its code host is a separate change to setup and both split descriptors.
+
+## 2026-09-17: Add `om-qa-buddy`, a human-in-the-loop manual QA companion
+
+A contributor's own 10-skill manual QA pipeline, battle-tested in an external
+deployment, is consolidated here into one generalized skill rather than ported
+skill-for-skill: context gathering, plain-language translation, and regression
+lookup collapse into one step; the app-specific local environment setup
+(exact build/run commands, tenant/org UI selection) is dropped in favor of the
+existing stack-agnostic `om-prepare-test-env`; and the standalone archival
+housekeeping skill is left out as unrelated to a single QA session.
+
+Unlike `om-auto-qa-pr`'s automated pipeline sign-off, this skill never
+comments, labels, or claims a tracker item — every deliverable (test plan,
+bug files, verdict) is handed to the user to read or paste. It also
+reproduces the source pipeline's most valuable, and hardest to port, piece:
+an interactive runbook published *before* execution starts so a human tester
+can work through it in parallel, then updated in place with AI verdicts and
+bug evidence at the end, with the tester's own per-case verdicts surviving
+the update via a stable element id and storage key. The source design published
+this exclusively through a Claude-specific hosted-artifact tool, which this
+collection's Codex-compatible skills cannot depend on; the generalized version
+writes a self-contained local HTML file (inline CSS/JS, no external requests)
+that works from any agent, and additionally publishes to a hosted link only
+when the running environment offers that capability.
+
+Finally, the skill grows a small local QA knowledge base
+(`<paths.qa>/knowledge-base/`: a module-history log and a risk-hotspots list)
+that later sessions read before planning — the one genuinely new,
+cross-session capability the source pipeline had that no existing skill in
+this collection covers.
