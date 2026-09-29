@@ -36,7 +36,7 @@ All 13 source files have counterparts; none is omitted.
 | `references/assets/components.css` | Byte-identical. |
 | `references/assets/index.html` | Changed: replaces the product-specific backend shell with a neutral, explicitly unverified portable scaffold to adapt to the selected design. |
 | `references/assets/prototype.css` | Byte-identical. |
-| `references/assets/prototype.js` | Changed: validates stored documents, preserves deletion/reply semantics despite reviewer clock skew, handles unusual screen IDs, and maintains navigation/history in presentation mode. |
+| `references/assets/prototype.js` | Changed: validates stored documents and per-operation field types, preserves deletion/reply semantics despite reviewer clock skew, handles unusual screen IDs, and maintains navigation/history in presentation mode. |
 | `references/assets/screens.css` | Byte-identical. |
 | `references/assets/theme.css` | Byte-identical. |
 | `references/ds-tokens.default.json` | The full `tokens` object is equal, including all 124 records. Only the `source` and `generator` provenance metadata differs. |
@@ -98,11 +98,32 @@ not new browser executions in this documentation-only amendment. Screenshots
 and disposable fixtures were kept local in the earlier run and are not attached
 here. The fresh comparison and collection gate above are independently repeated.
 
-## Remaining hand-off
+## 2026-09-29 re-review and gate confirmation
 
-Update the #91 rollout description and #106 PR description with the same revised
-condition. Request @pkarw's confirmation and re-review, citing this comparison
-and the current head. Keep `blocked` until that requirement is satisfied; CI
-success and this report do not remove it. Upstream #5832 is handled independently
-once the revised condition is confirmed, with this collection as the source
-for subsequent consumption.
+The fresh re-review merged `main` at `10b27b61d61be3cfcedcb0d0c451060782acae1c`.
+Conflicts in `DECISIONS.md`, `UPGRADE_NOTES.md` and the installed-skill roster
+were resolved as unions, retaining both the detailed-design records and `main`'s
+GitLab/QA additions. The integration also synchronized the repository-installed
+browser descriptor, restored the setup skill's size budget, and corrected the
+collection count to 43 skills.
+
+Review found that shallow comment-operation normalization still allowed a
+malformed imported timestamp or message to crash a prototype containing valid
+feedback. The engine now rejects invalid per-operation shapes, and a regression
+test proves malformed committed/local operations are ignored without hiding the
+valid thread. The complete configured gate then passed in order:
+
+| Configured command | Result |
+|---|---|
+| `bash scripts/lint.sh` | PASS |
+| `node scripts/test-browser-providers.mjs` | PASS |
+| `node scripts/test-tracker-providers.mjs` | PASS |
+| `node scripts/test-classify-runs.mjs` | PASS |
+| `node scripts/test-close-keywords.mjs` | PASS |
+| `node --test scripts/test-ux-design.mjs scripts/test-ux-design-comments.mjs` | PASS: 39 tests, no failures or skips |
+
+As the original gate owner, @pkarw confirms the revised pinned-source condition,
+accepts this mapping and evidence, and completed the required fresh review. This
+satisfies rollout item 4: `blocked` can be removed when the approving review is
+submitted. Upstream #5832 remains an independent follow-up; this collection is
+the source for subsequent consumption.

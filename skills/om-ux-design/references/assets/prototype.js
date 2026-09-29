@@ -70,11 +70,40 @@
   function normalizeOperations(operations) {
     var seen = new Set();
     return (Array.isArray(operations) ? operations : []).filter(function (operation) {
-      if (!operation || typeof operation.id !== 'string' || seen.has(operation.id)) return false;
-      if (!operation.threadId || !operation.type || !operation.at) return false;
+      if (!operation || typeof operation !== 'object' || Array.isArray(operation)) return false;
+      if (!nonemptyString(operation.id) || seen.has(operation.id)) return false;
+      if (!nonemptyString(operation.threadId) || !nonemptyString(operation.at)) return false;
+      if (!operationPayloadIsValid(operation)) return false;
       seen.add(operation.id);
       return true;
     });
+  }
+
+  function nonemptyString(value) {
+    return typeof value === 'string' && value.trim() !== '';
+  }
+
+  function messageIsValid(message) {
+    return message && typeof message === 'object' && !Array.isArray(message) &&
+      nonemptyString(message.id) && typeof message.author === 'string' &&
+      typeof message.text === 'string' && nonemptyString(message.at);
+  }
+
+  function operationPayloadIsValid(operation) {
+    var payload = operation.payload;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+    if (operation.type === 'delete') return true;
+    if (operation.type === 'set-resolved') return typeof payload.resolved === 'boolean';
+    if (operation.type === 'reply') return messageIsValid(payload.message);
+    if (operation.type === 'reanchor') {
+      return nonemptyString(payload.screen) && typeof payload.anchor === 'string' &&
+        typeof payload.label === 'string';
+    }
+    if (operation.type === 'create') {
+      return nonemptyString(payload.screen) && typeof payload.anchor === 'string' &&
+        typeof payload.label === 'string' && messageIsValid(payload.message);
+    }
+    return false;
   }
 
   function allOperations() {

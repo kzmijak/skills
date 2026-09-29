@@ -329,6 +329,23 @@ test('invalid local documents do not prevent opening the prototype or exporting 
   }
 })
 
+test('malformed imported operations are ignored without hiding valid feedback', async () => {
+  const base = create('valid')
+  const malformed = [
+    { ...create('numeric-time'), at: 42 },
+    { ...create('missing-text'), payload: { ...create('missing-text').payload, message: { id: 'message', author: 'Reviewer', at: 'now' } } },
+    { id: 'bad-resolve', type: 'set-resolved', threadId: base.threadId, at: 'now', payload: { resolved: 'false' } },
+    { id: 'bad-anchor', type: 'reanchor', threadId: base.threadId, at: 'now', payload: { screen: {}, anchor: 'div', label: 'Target' } },
+    { id: 'unknown', type: 'replace-all', threadId: base.threadId, at: 'now', payload: {} },
+  ]
+  const storage = new Map([[storageKey('booking-design'), JSON.stringify({ version: 2, operations: malformed })]])
+  const app = boot({ operations: [base, ...malformed], storage })
+  app.click('Threads')
+  assert.equal(app.document.querySelectorAll('.anno-thread').length, 1)
+  assert.match((await app.download('Export Markdown')).content, /Keep feedback valid/)
+  assert.deepEqual((await app.exportOperations()).operations, [base])
+})
+
 test('deletion dominates creation and replies despite reviewer clock skew', async () => {
   const base = create('clock-skew', 'overview', 'div>button', '2026-01-01T12:00:00.000Z')
   const deletion = { id: 'delete-slower-clock', type: 'delete', threadId: base.threadId, at: '2026-01-01T11:59:00.000Z', payload: {} }
