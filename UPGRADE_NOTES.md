@@ -14,6 +14,13 @@ against them — not against the copies shipped in this repo:
 | `SDLC.md`, `CODE_REVIEW.md`, `BACKWARD_COMPATIBILITY.md`, `AGENTS.md` starter | `om-setup-agent-pipeline` | Regenerated only when missing — edit or regenerate deliberately |
 | `.ai/skills/<name>/SKILL.md` repo-local overrides | you | Never touched by upgrades; review them against new skill behavior |
 
+## 2026-09-22 — Shipped GitLab tracker provider
+
+- **GitLab repositories can run the whole pipeline.** Select `gitlab` to run issues, merge requests, reviews, CI pipelines, and labels on gitlab.com or a self-managed instance through `glab` (REST v4 via `glab api`). It is stand-alone: no `.ai/trackers/github.md` companion is installed.
+- **Setup:** install and authenticate `glab` (`glab auth login`, with `--hostname` for self-managed) and have `jq`, then re-run `/om-setup-agent-pipeline`. It defaults to `gitlab` when `origin` is on a GitLab host, installs `.ai/trackers/gitlab.md`, and offers to create the label taxonomy as project labels (group labels with the same names also satisfy the guards).
+- **What differs on GitLab**, all inside the descriptor: skills' "PR" is a merge request and `PR: #<n>` carries its iid; drafts are `Draft:` title prefixes; review verdicts are native approvals plus a marker note; comment ids are handles such as `merge_requests/12/345`; required checks are every non-`allow_failure` job of the head pipeline. `Closes #N` auto-closes only on merges into the default branch.
+- **No migration for existing repositories.** The config schema and tracker operation names are unchanged. The lint gate now also rejects direct `glab` calls in skill content outside the tracker descriptors.
+
 ## 2026-09-19 — `set_pipeline_label` removes competing labels under zsh
 
 `set_pipeline_label` in the GitHub tracker descriptor iterated the pipeline labels with
@@ -181,6 +188,15 @@ When `product-brief.md` exists, its Non-goals, Business rules, and Decisions tab
 - **Confirmed assumptions become decisions.** `om-discover --refresh` reads the resolved-assumptions comments on spec PRs (read-only, via **search-prs** and **list-issue-comments**) and records each human-confirmed assumption as a Decision row with the confirmer as owner.
 - **Migration:** nothing to do in a repository without `product-brief.md`. A generated `SDLC.md` gains the section *Product decisions as a protected contract* when the product layer is on; `/om-setup-discovery-pipeline` adds it to an existing one.
 
+## 2026-08-25 — CI verdicts need a completeness guard: re-sync `.ai/trackers/<tracker>.md`
+
+The tracker descriptor stated that "CI status truth comes from **get-pr-checks**", and the skills reading it concluded green whenever that surface reported nothing failing and nothing pending. But the check surface reports *jobs*: a workflow run the tracker has already created contributes **no rows at all** until its jobs register, so on a head pushed seconds ago the list is legitimately partial and the missing jobs are neither passing nor pending but absent. The test passed vacuously, and a run reported "CI green" off a workflow that had not started — observed on a real PR as green read from 4 of an eventual 14 check runs.
+
+- **The descriptor now carries the guard.** `get-pr-checks` is still the check-level truth; a green verdict additionally requires the run level to agree — **list-runs** on the PR head branch, filtered to the runs whose `headSha` is the PR head SHA, with any run whose `status` is not `completed` counted as pending. The two readings must agree, and the run level wins when they disagree. No operation was added, renamed, or changed: `list-runs` has always been part of the CI-runs contract.
+- **Skills affected:** `om-auto-fix-pr` (the CI baseline in `references/stabilize-ci.md`), `om-merge-buddy` (the CI gate behind its merge-ready rows), and the shared `references/ci-followup.md` bounded wait carried by `om-auto-fix-pr`, `om-auto-review-pr`, and `om-pr-autopilot`. Each now also reports which reading its verdict rests on, so a green claim is auditable.
+- **Migration:** re-sync your committed `.ai/trackers/<tracker>.md` — `/om-apply-upgrade-notes` does it while preserving local edits, or copy the CI bullet from `skills/om-setup-agent-pipeline/references/trackers/github.md` by hand. An un-synced descriptor is not broken; its skills simply keep the old, vacuously-green reading, which is exactly the bug. Custom descriptors for other trackers should document whether their own check surface can under-report while CI starts up, per the note now in `TEMPLATE.md`.
+- **No merge gate moved.** `om-approve-merge-pr` never enumerated checks — it merges on the tracker's own mergeability plus branch protection, so a vacuous green could misreport and could let the fix loop exit early, but it could not merge a red PR. That boundary is unchanged.
+
 ## 2026-08-25 — Shipped Linear and Atlassian split tracker providers
 
 - **Two provider descriptors are now ready to install.** Select `linear` to run issue operations through `schpet/linear-cli`, or `jira` to run Jira Cloud work-item operations through Atlassian CLI (`acli`). Both keep repository, pull-request, review, CI, and PR-label operations on GitHub.
@@ -311,7 +327,7 @@ new behavior.
 ## Re-syncing the tracker descriptor
 
 The shipped descriptors live in `skills/om-setup-agent-pipeline/references/trackers/`
-(`github.md`, `linear.md`, `jira.md`, plus `TEMPLATE.md` for custom providers). Your installed copy is
+(`github.md`, `gitlab.md`, `linear.md`, `jira.md`, plus `TEMPLATE.md` for custom providers). Your installed copy is
 `.ai/trackers/<tracker>.md` in the consuming repository.
 
 ```bash
@@ -331,7 +347,7 @@ cp <path-to-skills>/om-setup-agent-pipeline/references/trackers/github.md .ai/tr
 Re-running `/om-setup-agent-pipeline` also refreshes the descriptor, but plain-copies it —
 prefer the diff-and-merge route when you have customized operations.
 
-For the shipped `linear` or `jira` split provider, substitute its filename in the commands
+For the shipped `gitlab` provider, substitute `gitlab.md` in the commands above; it has no companion. For the shipped `linear` or `jira` split provider, substitute its filename in the commands
 above and repeat the diff for the companion `.ai/trackers/github.md`. The primary descriptor owns
 issues; the companion owns repository, PR, review, CI, and PR-label operations, so both copies must
 stay current.
