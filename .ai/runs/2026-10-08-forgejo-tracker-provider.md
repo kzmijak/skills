@@ -46,7 +46,16 @@ Follows the spec's Implementation Plan, steps 1–18, phase for phase. Phases 1�
 
 ## Live verification
 
-(Filled in Phase 7.)
+API shapes checked read-only against public Forgejo repositories on Codeberg (16.0.0-dev) before implementation:
+- PR runs carry `prettyref: "#N"`, so runs are queried by `head_sha`;
+- status contexts carry the event, `… (pull_request)`, which confirms that a dispatched rerun cannot turn the PR check green;
+- `GET /branches/{base}` is readable without membership;
+- timestamps carry offsets (`+02:00`);
+- the timeline marks PR references as `pull_ref` / `comment_ref`.
+
+Token scopes: creating a repository needs `write:user`. The Codeberg token used here lacks it, so the sandbox must be created by hand.
+
+Pending: Phase 7 needs the sandbox repositories (Codeberg `kzmijak/forgejo-provider-sandbox` with Actions enabled; a throwaway repo on the self-hosted 16.0.3 instance).
 
 ## Progress
 
@@ -90,14 +99,14 @@ PR: #134
 
 ### Phase 8: Setup and skill edits
 
-- [ ] 8.1 Add forgejo to setup and apply the four D12 skill edits
+- [x] 8.1 Add forgejo to setup and apply the four D12 skill edits — 9d7a96a
 
 ### Phase 9: Parity and lint
 
 - [x] 9.1 Add forgejo to the parity set and assert no TODO remains — ac49dc6
-- [ ] 9.2 Extend the lint gate to Forgejo helpers and token variables
+- [x] 9.2 Extend the lint gate to Forgejo helpers and token variables — db01f22
 
 ### Phase 10: Docs and gate
 
-- [ ] 10.1 Update DECISIONS, UPGRADE_NOTES, README and skill docs
+- [x] 10.1 Update DECISIONS, UPGRADE_NOTES, README and skill docs — 38fdd7f
 - [ ] 10.2 Run the full validation gate
