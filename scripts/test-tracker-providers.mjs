@@ -77,6 +77,7 @@ for (const [name, skill] of [
 }
 assert.match(autoFixStabilize, /short check list is not a green one/);
 assert.match(autoFixStabilize, /status` is not `completed` as PENDING/);
+assert.match(autoFixStabilize, /RERUN_UNAVAILABLE <link>[\s\S]*do not\s+treat that as "failed again"/, "om-auto-fix-pr: a report-only rerun is an unconfirmed flake, not a failure");
 
 const completenessBlocks = ciFollowups.map(([path, contents]) => {
   const start = contents.indexOf('"Settled" is a claim about a complete reading');
@@ -105,8 +106,8 @@ assert.doesNotMatch(
 );
 assert.match(gitlabCreateIssue, /gl_assign issues "\$ISSUE_ID" add/, "gitlab: assign a created issue through the Free-compatible update helper");
 
-assert.match(setup, /`github`, `linear`, `jira`, `gitlab`, or custom/);
-assert.match(setup, /ships `github.md`, `gitlab.md`, `linear.md`, and `jira.md`/);
+assert.match(setup, /`github`, `linear`, `jira`, `gitlab`, `forgejo`, or custom/);
+assert.match(setup, /ships `github.md`, `gitlab.md`, `forgejo.md`, `linear.md`, and `jira.md`/);
 assert.match(setup, /`linear` and `jira` require `\.ai\/trackers\/github\.md`/);
 
 assert.match(linear, /requires `linear` 2\.4\.0 or newer/);
