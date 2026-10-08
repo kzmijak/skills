@@ -30,7 +30,7 @@ Add a shipped, stand-alone `forgejo` tracker descriptor. A repository hosted on 
 
 ## Implementation Plan
 
-Follows the spec's Implementation Plan, steps 1–18, phase for phase.
+Follows the spec's Implementation Plan, steps 1–18, phase for phase. Phases 1–6 landed as one descriptor commit plus one test commit: the operations share helpers that only make sense together, and the stub tests cover every phase.
 
 ## Risks
 
@@ -50,36 +50,38 @@ Follows the spec's Implementation Plan, steps 1–18, phase for phase.
 
 ## Progress
 
+PR: #134
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Skeleton, helpers, harness
 
-- [ ] 1.1 Create forgejo.md with prerequisites, conventions, shared helpers and all operation headings
-- [ ] 1.2 Add the Forgejo stub harness and helper tests to the tracker-provider tests
-- [ ] 1.3 Implement identity and repository operations with tests
+- [x] 1.1 Create forgejo.md with prerequisites, conventions, shared helpers and all operation headings — 0c1d32c (tests ac49dc6)
+- [x] 1.2 Add the Forgejo stub harness and helper tests to the tracker-provider tests — ac49dc6
+- [x] 1.3 Implement identity and repository operations with tests — 0c1d32c (tests ac49dc6)
 
 ### Phase 2: Issues
 
-- [ ] 2.1 Implement issue operations with tests
+- [x] 2.1 Implement issue operations with tests — 0c1d32c (tests ac49dc6)
 
 ### Phase 3: Pull requests, read side
 
-- [ ] 3.1 Implement get-pr with merge state, review decision and close-link parsing
-- [ ] 3.2 Implement PR list, search, diff, files, checkout and comment reads
+- [x] 3.1 Implement get-pr with merge state, review decision and close-link parsing — 0c1d32c (tests ac49dc6)
+- [x] 3.2 Implement PR list, search, diff, files, checkout and comment reads — 0c1d32c (tests ac49dc6)
 
 ### Phase 4: Pull requests, write side
 
-- [ ] 4.1 Implement PR create, update, ready, comment, assign, label, review and merge
-- [ ] 4.2 Implement attach-image-evidence through comment assets
+- [x] 4.1 Implement PR create, update, ready, comment, assign, label, review and merge — 0c1d32c (tests ac49dc6)
+- [x] 4.2 Implement attach-image-evidence through comment assets — 0c1d32c (tests ac49dc6)
 
 ### Phase 5: Labels
 
-- [ ] 5.1 Implement label guards and label operations with tests
+- [x] 5.1 Implement label guards and label operations with tests — 0c1d32c (tests ac49dc6)
 
 ### Phase 6: CI
 
-- [ ] 6.1 Implement get-pr-checks and get-required-checks
-- [ ] 6.2 Implement run operations, watch-run and rerun-failed modes
+- [x] 6.1 Implement get-pr-checks and get-required-checks — 0c1d32c (tests ac49dc6)
+- [x] 6.2 Implement run operations, watch-run and rerun-failed modes — 0c1d32c (tests ac49dc6)
 
 ### Phase 7: Live verification record
 
@@ -92,7 +94,7 @@ Follows the spec's Implementation Plan, steps 1–18, phase for phase.
 
 ### Phase 9: Parity and lint
 
-- [ ] 9.1 Add forgejo to the parity set and assert no TODO remains
+- [x] 9.1 Add forgejo to the parity set and assert no TODO remains — ac49dc6
 - [ ] 9.2 Extend the lint gate to Forgejo helpers and token variables
 
 ### Phase 10: Docs and gate
