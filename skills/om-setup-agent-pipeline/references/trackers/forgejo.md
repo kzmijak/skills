@@ -49,7 +49,7 @@ At runtime: `om-setup-agent-pipeline` copies this file into the repository at `.
   1. a draft → `DRAFT`;
   2. `mergeable: false` on a non-draft → re-read once after a short wait (Forgejo reports `false` while its conflict check runs), and if still `false` → `CONFLICTING` / `DIRTY`;
   3. a base branch that cannot be read → `MERGEABLE` / `UNKNOWN`;
-  4. `user_can_merge: false`, or a combined status of `failure`/`error`/`pending` while the branch enforces status checks → `MERGEABLE` / `BLOCKED`;
+  4. `user_can_merge: false`, fewer counted approvals than a protected branch's `required_approvals`, or a combined status of `failure`/`error`/`pending` while the branch enforces status checks → `MERGEABLE` / `BLOCKED`;
   5. otherwise → `MERGEABLE` / `CLEAN`.
 - **CI truth.**
   - For a PR, CI truth comes from the **commit statuses** on its head SHA (**get-pr-checks**). Forgejo Actions, Woodpecker, and any other CI that reports statuses all show up there.
@@ -73,7 +73,7 @@ fj_parse_remote() {
   local url rest host path
   url=${1%.git}
   case "$url" in
-    https://*) rest=${url#https://}; host=${rest%%/*}; path=${rest#*/} ;;
+    https://*) rest=${url#https://}; host=${rest%%/*}; host=${host##*@}; path=${rest#*/} ;;
     ssh://*) rest=${url#ssh://}; rest=${rest#*@}; host=${rest%%/*}; host=${host%%:*}; path=${rest#*/} ;;
     http://*) echo "Refusing plain-http Forgejo remote: $1" >&2; return 1 ;;
     *@*:*) rest=${url#*@}; host=${rest%%:*}; path=${rest#*:} ;;
@@ -189,14 +189,18 @@ fj_write() {
 # A successful (2xx) page whose list is JSON null is empty: Forgejo answers an empty
 # timeline that way.
 fj_list() {
-  local sep page t
+  local sep page t out_hdr
+  out_hdr=${FJ_HDR:-}   # the caller's header file gets the failing page's headers
   case "$1" in *\?*) sep='&' ;; *) sep='?' ;; esac
   t=$(mktemp -d) || return 1
   echo '[]' > "$t/all"
   page=1
   while :; do
     : > "$t/h"
-    FJ_HDR="$t/h" fj_http GET "$1${sep}limit=50&page=$page" > "$t/p" || { echo "Forgejo API request failed: $1" >&2; rm -rf "$t"; return 1; }
+    FJ_HDR="$t/h" fj_http GET "$1${sep}limit=50&page=$page" > "$t/p" || {
+      [ -z "$out_hdr" ] || cp "$t/h" "$out_hdr"
+      echo "Forgejo API request failed: $1" >&2; rm -rf "$t"; return 1
+    }
     jq -e --arg k "${2:-}" 'if $k == "" then . else .[$k] end | if . == null then [] else . end | arrays' "$t/p" > "$t/a" 2>/dev/null ||
       { echo "Forgejo returned no list for $1" >&2; rm -rf "$t"; return 1; }
     jq -s '.[0] + .[1]' "$t/all" "$t/a" > "$t/n" && mv "$t/n" "$t/all"
@@ -350,6 +354,7 @@ fj_pr_json() {
           elif $p.mergeable == false then "DIRTY"
           elif $b == null then "UNKNOWN"
           elif $b.user_can_merge == false then "BLOCKED"
+          elif ($b.protected == true) and ([$verdicts[] | select(.state == "APPROVED")] | length) < ($b.required_approvals // 0) then "BLOCKED"
           elif ($b.enable_status_check == true) and (($st.state // "") | IN("failure", "error", "pending")) then "BLOCKED"
           else "CLEAN" end),
         reviewDecision: (
@@ -945,14 +950,22 @@ When the CI is external (Woodpecker or another service) or Actions is disabled, 
 Branch (or head SHA) → the Actions runs at that commit with `databaseId`, `workflowName` (the workflow file), `status` (`queued`/`in_progress`/`completed`), `conclusion`, `headSha`, `url`, and `createdAt`. A branch is resolved to its head SHA first, because pull-request runs are recorded against the PR rather than the branch.
 ```bash
 fj_list_runs() {
-  local r web sha runs statuses
+  local r web sha runs statuses hdr
   [ -n "${1:-}" ] || { echo "list-runs needs a branch or head SHA" >&2; return 1; }
   r=$(fj_repo) || return 1
   web=$(fj_web) || return 1
   if fj_sha "$1" 2>/dev/null && [ "${#1}" -ge 40 ]; then sha=$1
   else sha=$(fj_get "repos/$r/branches/$(printf '%s' "$1" | jq -sRr @uri)" -r '.commit.id') || return 1
   fi
-  runs=$(fj_list "repos/$r/actions/runs?head_sha=$sha" workflow_runs 2>/dev/null) || runs=''
+  hdr=$(mktemp) || return 1
+  if ! runs=$(FJ_HDR="$hdr" fj_list "repos/$r/actions/runs?head_sha=$sha" workflow_runs 2>/dev/null); then
+    # 404/403: Actions is disabled or not offered; anything else is an unreadable answer.
+    case "$(FJ_HDR="$hdr" fj_status)" in
+      403|404) runs='' ;;
+      *) rm -f "$hdr"; echo "Could not read Actions runs for $sha" >&2; return 1 ;;
+    esac
+  fi
+  rm -f "$hdr"
   if [ -n "$runs" ] && [ "$(printf '%s' "$runs" | jq 'length')" -gt 0 ]; then
     printf '%s' "$runs" | jq "$FJ_JQ_DEFS"'map(fj_run)'
     return 0

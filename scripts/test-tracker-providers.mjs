@@ -604,6 +604,7 @@ try {
   assert.equal(parse("https://git.example.com:3000/forgejo/o/r"), "https://git.example.com:3000/forgejo o/r");
   assert.equal(parse("git@codeberg.org:o/r.git"), "https://codeberg.org o/r");
   assert.equal(parse("ssh://git@git.example.com:2222/o/r.git"), "https://git.example.com o/r");
+  assert.equal(parse("https://user:secret@codeberg.org/o/r.git"), "https://codeberg.org o/r", "credentials in a remote URL never reach the API base");
   assert.notEqual(runForgejo("fj_parse_remote http://git.example.com/o/r").status, 0, "plain http must be refused");
   assert.notEqual(runForgejo("fj_web", { FORGEJO_URL: "http://git.example.com" }).status, 0);
   assert.notEqual(runForgejo("fj_repo", { REPO: "o/r;rm -rf /" }).status, 0);
@@ -690,6 +691,8 @@ try {
   assert.deepEqual(mergeState({ mergeable: false }), ["CONFLICTING", "DIRTY", 2], "mergeable=false is re-read once before reporting a conflict");
   const clean = { [`GET ${RP}/branches/main`]: { ...fjFixtures[`GET ${RP}/branches/main`], user_can_merge: true } };
   assert.deepEqual(mergeState({}, clean), ["MERGEABLE", "CLEAN", 1]);
+  const protectedTwo = { [`GET ${RP}/branches/main`]: { ...fjFixtures[`GET ${RP}/branches/main`], user_can_merge: true, protected: true, required_approvals: 2 } };
+  assert.deepEqual(mergeState({}, protectedTwo), ["MERGEABLE", "BLOCKED", 1], "missing required approvals block the merge");
   assert.deepEqual(mergeState({}, { ...clean, [`GET ${RP}/commits/abcdef1/status`]: { state: "pending" } }), ["MERGEABLE", "BLOCKED", 1]);
   assert.equal(JSON.parse(withForgejo({ [`GET ${RP}/pulls/7`]: { ...pr7, state: "closed", merged: true, merged_at: "2026-09-03T12:00:00+02:00" } }, "fj_pr_json 7", { FJ_PR_LIGHT: "1" }).stdout).mergedAt, "2026-09-03T10:00:00Z");
 
@@ -828,6 +831,18 @@ try {
   }, "fj_list_runs abcdef1abcdef1abcdef1abcdef1abcdef1abcde");
   assert.equal(external.status, 4, "statuses without runs mean an external CI");
   assert.equal(external.stdout.trim(), "RUNS_UNAVAILABLE https://ci.example/9");
+  const runsUnreadable = withForgejo({
+    [`GET ${RP}/actions/runs`]: { __status: 500, __body: { message: "boom" } },
+    [`GET ${RP}/commits/abcdef1abcdef1abcdef1abcdef1abcdef1abcde/statuses`]: [{ id: 1, context: "ci", status: "success", target_url: "https://ci.example/9" }],
+  }, "fj_list_runs abcdef1abcdef1abcdef1abcdef1abcdef1abcde");
+  assert.equal(runsUnreadable.status, 1, "an unreadable runs list is an error, not an external CI");
+  const actionsOff = withForgejo({
+    [`GET ${RP}/actions/runs`]: { __status: 404, __body: { message: "not found" } },
+    [`GET ${RP}/commits/abcdef1abcdef1abcdef1abcdef1abcdef1abcde/statuses`]: [{ id: 1, context: "ci", status: "success", target_url: "https://ci.example/9" }],
+  }, "fj_list_runs abcdef1abcdef1abcdef1abcdef1abcdef1abcde");
+  assert.equal(actionsOff.status, 4, "Actions disabled (404) with statuses present is an external CI");
+  assert.equal(actionsOff.stdout.trim(), "RUNS_UNAVAILABLE https://ci.example/9");
+  assert.doesNotMatch(runsUnreadable.stdout, /RUNS_UNAVAILABLE/);
   const notYet = withForgejo({
     [`GET ${RP}/actions/runs`]: { total_count: 0, workflow_runs: [] },
     [`GET ${RP}/commits/abcdef1abcdef1abcdef1abcdef1abcdef1abcde/statuses`]: [],
