@@ -136,4 +136,4 @@ PR: #134
 ### Phase 10: Docs and gate
 
 - [x] 10.1 Update DECISIONS, UPGRADE_NOTES, README and skill docs — 38fdd7f
-- [ ] 10.2 Run the full validation gate
+- [x] 10.2 Run the full validation gate — 3c280ac (5/5 green)
