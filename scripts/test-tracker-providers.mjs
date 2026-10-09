@@ -507,7 +507,7 @@ const wrapped = entry && typeof entry === "object" && !Array.isArray(entry) && (
 const status = wrapped ? (entry.__status || 200) : 200;
 const out = wrapped ? entry.__body : entry;
 if (process.env.FJ_HDR_OUT) writeFileSync(process.env.FJ_HDR_OUT, "HTTP/1.1 " + status + "\\r\\n" + ((wrapped && entry.__headers) || ""));
-if (out !== undefined && out !== null) process.stdout.write(typeof out === "string" ? out : JSON.stringify(out));
+if (out !== undefined && !(wrapped && out === null)) process.stdout.write(typeof out === "string" ? out : JSON.stringify(out));
 process.exit(status >= 400 ? 22 : 0);
 `,
 );
@@ -719,6 +719,10 @@ try {
   }, `fj_list "${RP}/labels"`);
   assert.equal(paged.status, 0, paged.stderr);
   assert.deepEqual(JSON.parse(paged.stdout).map((label) => label.name), ["a", "b"]);
+  const nullList = withForgejo({ [`GET ${RP}/issues/3/timeline`]: null }, `fj_list "${RP}/issues/3/timeline"`);
+  assert.equal(nullList.status, 0, "a 200 null list (Forgejo's empty timeline) is an empty list");
+  assert.deepEqual(JSON.parse(nullList.stdout), []);
+  assert.notEqual(runForgejo("fj_list_runs ''").status, 0, "list-runs refuses an empty branch or SHA");
   const envelope = runForgejo(`fj_list "${RP}/actions/runs?head_sha=abcdef1" workflow_runs`);
   assert.deepEqual(JSON.parse(envelope.stdout).map((run) => run.id), [900]);
   assert.notEqual(runForgejo(`fj_list "${RP}/actions/runs/900"`).status, 0, "an object where a list is expected is an error");

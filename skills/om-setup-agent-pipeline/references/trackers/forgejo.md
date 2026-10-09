@@ -186,6 +186,8 @@ fj_write() {
 # Every page of a list endpoint, concatenated into one JSON array. $1 = API path,
 # $2 = optional key holding the array in an object envelope (e.g. workflow_runs).
 # Follows Link rel="next" and X-HasMore; fails when any page fails or is not a list.
+# A successful (2xx) page whose list is JSON null is empty: Forgejo answers an empty
+# timeline that way.
 fj_list() {
   local sep page t
   case "$1" in *\?*) sep='&' ;; *) sep='?' ;; esac
@@ -195,7 +197,7 @@ fj_list() {
   while :; do
     : > "$t/h"
     FJ_HDR="$t/h" fj_http GET "$1${sep}limit=50&page=$page" > "$t/p" || { echo "Forgejo API request failed: $1" >&2; rm -rf "$t"; return 1; }
-    jq -e --arg k "${2:-}" 'if $k == "" then . else .[$k] end | arrays' "$t/p" > "$t/a" 2>/dev/null ||
+    jq -e --arg k "${2:-}" 'if $k == "" then . else .[$k] end | if . == null then [] else . end | arrays' "$t/p" > "$t/a" 2>/dev/null ||
       { echo "Forgejo returned no list for $1" >&2; rm -rf "$t"; return 1; }
     jq -s '.[0] + .[1]' "$t/all" "$t/a" > "$t/n" && mv "$t/n" "$t/all"
     if grep -qi '^link:.*rel="next"' "$t/h" || grep -qi '^x-hasmore: *true' "$t/h"; then
@@ -944,6 +946,7 @@ Branch (or head SHA) → the Actions runs at that commit with `databaseId`, `wor
 ```bash
 fj_list_runs() {
   local r web sha runs statuses
+  [ -n "${1:-}" ] || { echo "list-runs needs a branch or head SHA" >&2; return 1; }
   r=$(fj_repo) || return 1
   web=$(fj_web) || return 1
   if fj_sha "$1" 2>/dev/null && [ "${#1}" -ge 40 ]; then sha=$1
