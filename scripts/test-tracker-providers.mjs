@@ -705,6 +705,7 @@ try {
   assert.notEqual(withForgejo({ [`GET ${RP}/issues/7/comments`]: undefined }, "fj_list_comments 7").status, 0);
   const emptyComment = runForgejo("fj_get_comment 701");
   assert.notEqual(emptyComment.status, 0, "a 204 comment read must not read as an empty comment");
+  assert.match(emptyComment.stderr, /inline review comment[\s\S]*get-review-comment/, "a 204 points the caller at get-review-comment");
   assert.equal(emptyComment.stdout, "");
   const noSearch = withForgejo({}, 'fj_search_prs "docs/runs/plan.md" open');
   assert.notEqual(noSearch.status, 0, "a failed search must not read as no matching PR");

@@ -600,11 +600,22 @@ fj_assign {issueId} remove <username>
 Always through the guards: `apply_issue_label "<label>" {issueId}` / `remove_issue_label "<label>" {issueId}`.
 
 #### get-issue-comment
-Comment id → body, author, URL. A `204` (Forgejo's answer for comments that are not plain conversation comments) is an error, never an empty comment.
+Comment id → body, author, URL. Forgejo answers `204` with an empty body when the id belongs to an inline review comment, which shares the `#issuecomment-<id>` link shape with conversation comments. That is an error naming **get-review-comment**, never an empty comment.
 ```bash
 fj_get_comment() {
+  local hdr resp status
   fj_num "$1" || return 1
-  fj_get "repos/$(fj_repo)/issues/comments/$1" '{body, user: .user.login, url: .html_url}'
+  hdr=$(mktemp) || return 1
+  resp=$(FJ_HDR="$hdr" fj_http GET "repos/$(fj_repo)/issues/comments/$1") || {
+    rm -f "$hdr"; echo "Forgejo API request failed: comment $1" >&2; return 1
+  }
+  status=$(FJ_HDR="$hdr" fj_status)
+  rm -f "$hdr"
+  if [ "$status" = 204 ] || [ -z "$resp" ]; then
+    echo "Comment $1 is an inline review comment, not a conversation comment: use get-review-comment with the PR number." >&2
+    return 1
+  fi
+  printf '%s' "$resp" | jq '{body, user: .user.login, url: .html_url}'
 }
 fj_get_comment {commentId}
 ```
@@ -806,7 +817,7 @@ fj_review() {
   esac
   jq -n --arg e "$event" --rawfile b "$3" '{event: $e, body: $b}' \
     | fj_write POST "repos/$(fj_repo)/pulls/$1/reviews" | jq -e '.id' >/dev/null || {
-    echo "Forgejo refused the review: authors cannot approve their own pull request, and branch rules may exclude this user." >&2
+    echo "Forgejo refused the review: authors cannot approve or request changes on their own pull request (HTTP 422), and branch rules may exclude this user." >&2
     return 1
   }
 }
@@ -891,8 +902,9 @@ fj_required_checks {baseRefName}
 ```
 
 #### get-pr-comment / get-review-comment
-- A conversation comment id (`#issuecomment-<id>` links) → `fj_get_comment {commentId}` from **get-issue-comment**.
-- An inline review comment (`/files#issuecomment-<id>` links on the files tab) has no lookup by id alone. Find it by scanning the PR's reviews.
+Forgejo links both kinds as `…/pulls/<n>#issuecomment-<id>`.
+- Try `fj_get_comment {commentId}` from **get-issue-comment** first.
+- When it reports an inline review comment, use `fj_get_review_comment {prNumber} {commentId}`. There is no lookup by id alone, so it scans the PR's reviews.
 ```bash
 fj_get_review_comment() {
   local r rid found
