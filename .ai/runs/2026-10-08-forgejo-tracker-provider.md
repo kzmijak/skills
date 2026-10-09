@@ -137,3 +137,4 @@ PR: #134
 
 - [x] 10.1 Update DECISIONS, UPGRADE_NOTES, README and skill docs — 38fdd7f
 - [x] 10.2 Run the full validation gate — 3c280ac (5/5 green)
+- [x] Review autofix (PR #134): BLOCKED on unmet required approvals, Actions-runs read errors no longer reported as external CI, credentials stripped from https remotes — 5821877
