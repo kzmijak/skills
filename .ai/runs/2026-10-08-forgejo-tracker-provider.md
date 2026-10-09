@@ -46,16 +46,34 @@ Follows the spec's Implementation Plan, steps 1–18, phase for phase. Phases 1�
 
 ## Live verification
 
-API shapes checked read-only against public Forgejo repositories on Codeberg (16.0.0-dev) before implementation:
-- PR runs carry `prettyref: "#N"`, so runs are queried by `head_sha`;
-- status contexts carry the event, `… (pull_request)`, which confirms that a dispatched rerun cannot turn the PR check green;
-- `GET /branches/{base}` is readable without membership;
-- timestamps carry offsets (`+02:00`);
-- the timeline marks PR references as `pull_ref` / `comment_ref`.
+**Codeberg** (Forgejo 16.0.0-dev): public sandbox `kzmijak/forgejo-provider-sandbox`, Actions on hosted `codeberg-tiny` runners, 2026-10-09. Every result below came from the descriptor's own helpers, extracted verbatim.
 
-Token scopes: creating a repository needs `write:user`. The Codeberg token used here lacks it, so the sandbox must be created by hand.
+| Area | Result |
+|---|---|
+| auth-check, current-user, repo-info, default-branch | pass |
+| ensure-label-taxonomy / list-labels | 27 labels created; a re-run creates none |
+| Issues: create, assign, label (guarded skip of an unknown label), get, search, comment, get/list/update comment, update, unlabel (absent → no-op), unassign, close | pass ([#1](https://codeberg.org/kzmijak/forgejo-provider-sandbox/issues/1)) |
+| create-pr draft → `isDraft: true`, `DRAFT`; update-pr keeps `WIP:`; mark-pr-ready reads back `draft: false` | pass ([#3](https://codeberg.org/kzmijak/forgejo-provider-sandbox/pulls/3)) |
+| closingIssuesReferences | parsed `[2]`, ignored the code-span `fixes #99` / fenced `resolves #98`; Forgejo closed #2 on merge |
+| review-pr on own PR | refused with 422 for approve **and** request-changes; error message updated |
+| assign-pr, set_pipeline_label | pass |
+| attach-image-evidence | comment asset uploaded and rendered inline; the URL serves `image/png` without auth |
+| get-pr-diff, get-pr-files, checkout-pr (`refs/pull/N/head`) | pass |
+| search-prs `#N` (timeline) and free text; list-prs open/merged with date bound | pass |
+| merge-pr with a stale `head_commit_id` | 409, surfaced; with the verified SHA, merged and read back `merged: true` |
+| Inline review comments | `#issuecomment-<id>` links shared with conversation comments; the issue-comment endpoint answers 204. **Fixed:** get-issue-comment names get-review-comment, and the follow-up link shape is corrected (e5e9846). list-review-comments and get-review-comment pass ([#4](https://codeberg.org/kzmijak/forgejo-provider-sandbox/pulls/4)) |
+| Commit statuses from an external CI (posted via API) | get-pr-checks buckets `success`/`warning` correctly; list-runs → `RUNS_UNAVAILABLE <link>` exit 4 while Actions was disabled |
+| Forgejo Actions ([#5](https://codeberg.org/kzmijak/forgejo-provider-sandbox/pulls/5)) | list-runs by head SHA, get-run, get-run-failed-logs (job log tail), get-pr-checks `ci / test (pull_request)` FAILURE |
+| get-required-checks | branch protection via API → prints `ci / test (pull_request)`; get-pr shows `BLOCKED` |
+| rerun-failed `report` | `RERUN_UNAVAILABLE <run link>`, exit 3 |
+| rerun-failed `dispatch` | new run 7585617 dispatched on `probe3` and watched to `success` (watch-run exit 0); **the PR check `ci / test (pull_request)` stayed FAILURE and the PR `BLOCKED`**, which confirms the D5 default |
 
-Pending: Phase 7 needs the sandbox repositories (Codeberg `kzmijak/forgejo-provider-sandbox` with Actions enabled; a throwaway repo on the self-hosted 16.0.3 instance).
+Token-scope findings:
+- `write:repository` + `write:issue` + `read:user` cover every operation above.
+- Creating a repository needs `write:user`.
+- `PATCH /repos/{o}/{r}` (repository settings, e.g. enabling Actions) answered 403 even with `write:repository` on Codeberg, so Actions is enabled in the UI. No operation needs it.
+
+**Self-hosted Forgejo 16.0.3** (spec D11): blocked. On 2026-10-09 the instance's host answered `/api/v1/*` with an nginx 404 and served a different site at `/`, so the version-sensitive checks could not run.
 
 ## Progress
 
@@ -94,7 +112,7 @@ PR: #134
 
 ### Phase 7: Live verification record
 
-- [ ] 7.1 Exercise every operation against the Codeberg sandbox
+- [x] 7.1 Exercise every operation against the Codeberg sandbox — e5e9846 (fix found live), results above
 - [ ] 7.2 Run the version-sensitive checks on self-hosted Forgejo 16.0.3
 
 ### Phase 8: Setup and skill edits
