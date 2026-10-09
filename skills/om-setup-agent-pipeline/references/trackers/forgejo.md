@@ -842,7 +842,7 @@ jq -n --arg sha "<headRefOid>" '{Do: "squash", head_commit_id: $sha, merge_when_
   | fj_write POST "repos/$(fj_repo)/pulls/{prNumber}/merge" >/dev/null   # auto-merge
 ```
 The merge endpoint answers with an empty body, so the read-back is the proof. Surface these refusals instead of merging differently:
-- a 405: required checks or approvals unmet, or squash disallowed by the repository settings;
+- a 405: required checks or approvals unmet, squash disallowed by the repository settings, or Forgejo still recomputing mergeability right after a change to either branch. Re-read **get-pr** and retry once before surfacing it;
 - a 409: the head moved.
 
 #### mark-pr-ready

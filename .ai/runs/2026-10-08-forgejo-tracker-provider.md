@@ -73,7 +73,16 @@ Token-scope findings:
 - Creating a repository needs `write:user`.
 - `PATCH /repos/{o}/{r}` (repository settings, e.g. enabling Actions) answered 403 even with `write:repository` on Codeberg, so Actions is enabled in the UI. No operation needs it.
 
-**Self-hosted Forgejo 16.0.3** (spec D11): blocked. On 2026-10-09 the instance's host answered `/api/v1/*` with an nginx 404 and served a different site at `/`, so the version-sensitive checks could not run.
+**Self-hosted Forgejo 16.0.3** (spec D11), 2026-10-09: a public throwaway repository on the requester's instance. The checks ran as a **non-admin service account** that is a write collaborator on that repository only, with a token of exactly `write:repository`, `write:issue`, `read:user`.
+
+| Area | Result |
+|---|---|
+| D4 token scopes | Every non-CI operation passed: auth-check (the instance requires sign-in even for `/version`, and the token is sent), labels (27, idempotent), the full issue set, the PR set, attach-image-evidence, search, list-prs, review comments, checkout-pr, and merge. A personal token with read-only scopes failed writes with 403 `write:issue` / `write:repository`. |
+| D7 draft read-back | `WIP:` → `isDraft: true` / `DRAFT`; mark-pr-ready reads back `draft: false` |
+| Close links | parsed `[3]`; Forgejo closed #3 on merge |
+| merge-pr | the first attempt after the stale-SHA refusal answered **405** and the immediate retry merged, so Forgejo was still recomputing mergeability. The merge-pr docs now say to re-read and retry once |
+| **Fixed live:** empty lists | an issue with no cross-references answers its timeline with a 200 `null`; `fj_list` rejected it, so search-prs `#N` failed. Now read as `[]` (c7cb3e1, with a test) |
+| D5 dispatch status context | **not runnable**: the instance has no Actions runner. Verified on Codeberg instead (above) |
 
 ## Progress
 
@@ -113,7 +122,7 @@ PR: #134
 ### Phase 7: Live verification record
 
 - [x] 7.1 Exercise every operation against the Codeberg sandbox — e5e9846 (fix found live), results above
-- [ ] 7.2 Run the version-sensitive checks on self-hosted Forgejo 16.0.3
+- [x] 7.2 Run the version-sensitive checks on self-hosted Forgejo 16.0.3 — c7cb3e1 (fix found live); D5 verified on Codeberg, no runner on 16.0.3
 
 ### Phase 8: Setup and skill edits
 
