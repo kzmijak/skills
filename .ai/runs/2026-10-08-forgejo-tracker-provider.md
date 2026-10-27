@@ -138,3 +138,7 @@ PR: #134
 - [x] 10.1 Update DECISIONS, UPGRADE_NOTES, README and skill docs — 38fdd7f
 - [x] 10.2 Run the full validation gate — 3c280ac (5/5 green)
 - [x] Review autofix (PR #134): BLOCKED on unmet required approvals, Actions-runs read errors no longer reported as external CI, credentials stripped from https remotes — 5821877
+
+## 2026-10-27 maintainer review and carry-forward
+
+The operator authorized review and autofix. The fork is carried forward with original authorship, after merging current base `b6885a8`. Setup and upgrade-note conflicts retain both sides. Regression fixes make pagination fail explicitly at its cap, propagate org/review-read errors, preserve unknown CI evidence, paginate free-text searches, make label transitions portable to zsh, bound HTTP calls, and redact rejected remote URLs. Light PR lists skip per-item mergeability waits. The setup prose was shortened to meet the size gate. Forgejo 17 rerun additions are documented without changing the verified version-16 fallback. Fresh live verification is not claimed; the original live record remains historical evidence.

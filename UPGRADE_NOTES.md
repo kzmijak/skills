@@ -22,7 +22,7 @@ against them — not against the copies shipped in this repo:
   - drafts are `WIP:` title prefixes;
   - CI checks are commit statuses, so any CI works;
   - run operations need Forgejo Actions and answer `RUNS_UNAVAILABLE` otherwise;
-  - **rerun-failed** reports a re-run link (`RERUN_UNAVAILABLE`) by default, because the API cannot re-run a job. Switch it to `dispatch` in `.ai/trackers/forgejo.md` for unattended runs; that mode diagnoses but leaves the PR check red.
+  - **rerun-failed** reports a re-run link (`RERUN_UNAVAILABLE`) by default, because the Forgejo 16 API cannot re-run a job. Switch it to `dispatch` in `.ai/trackers/forgejo.md` for unattended runs; that mode diagnoses but leaves the PR check red.
 - **For every repository:** `om-auto-fix-pr` now treats `RERUN_UNAVAILABLE` as an unconfirmed flake, and the lint gate rejects Forgejo API helpers in skill content outside the tracker descriptors. No migration is needed: the config schema and operation names are unchanged.
 
 ## 2026-09-14: Detailed screen design with `om-ux-design`

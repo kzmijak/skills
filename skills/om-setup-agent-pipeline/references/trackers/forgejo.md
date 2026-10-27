@@ -58,6 +58,7 @@ At runtime: `om-setup-agent-pipeline` copies this file into the repository at `.
   - When the CI is external or Actions is disabled, these operations exit 4 with `RUNS_UNAVAILABLE <status link>` on stdout, never an empty or green answer.
 - **A short `get-pr-checks` result is not evidence of green.** A status list can under-report here while its jobs register, because a run Forgejo has already created contributes no status until its jobs start. Before concluding "green" or "nothing pending", cross-check **list-runs** at the PR head SHA and count any run whose `status` is not `completed` as PENDING.
 - **Timestamps.** Forgejo returns them with the instance's UTC offset (`2026-10-08T15:39:58+02:00`). Every timestamp is normalized to UTC `Z` form, so callers can compare them as strings.
+- HTTP calls have a 10-second connection timeout and a 30-second total timeout.
 - A read that fails is an error, never an empty answer. Reads go through `fj_get` / `fj_list`, which fail when the request fails or returns an empty body where an object is expected. Never pipe `fj_http` straight into `jq`.
 - Multi-line bodies are always built into a JSON file with `jq --rawfile`, so formatting survives and nothing large touches a command line.
 - Validate every externally sourced value before interpolation: numbers with `fj_num`, SHAs with `fj_sha`, the repository with `fj_repo`. Branch names are URL-encoded with `jq @uri`.
@@ -75,14 +76,14 @@ fj_parse_remote() {
   case "$url" in
     https://*) rest=${url#https://}; host=${rest%%/*}; host=${host##*@}; path=${rest#*/} ;;
     ssh://*) rest=${url#ssh://}; rest=${rest#*@}; host=${rest%%/*}; host=${host%%:*}; path=${rest#*/} ;;
-    http://*) echo "Refusing plain-http Forgejo remote: $1" >&2; return 1 ;;
+    http://*) echo "Refusing plain-http Forgejo remote" >&2; return 1 ;;
     *@*:*) rest=${url#*@}; host=${rest%%:*}; path=${rest#*:} ;;
-    *) echo "Unrecognized Forgejo remote: $1" >&2; return 1 ;;
+    *) echo "Unrecognized Forgejo remote" >&2; return 1 ;;
   esac
   case "$path" in */*/*) host="$host/${path%/*/*}"; path=${path#"${path%/*/*}"/} ;; esac
   case "$path" in
     */*) ;;
-    *) echo "Unrecognized Forgejo remote: $1" >&2; return 1 ;;
+    *) echo "Unrecognized Forgejo remote" >&2; return 1 ;;
   esac
   printf 'https://%s %s\n' "$host" "$path"
 }
@@ -94,7 +95,7 @@ fj_web() {
     url=${FORGEJO_URL%/}
     case "$url" in
       https://*) ;;
-      *) echo "FORGEJO_URL must be an https:// URL: $FORGEJO_URL" >&2; return 1 ;;
+      *) echo "FORGEJO_URL must be an https:// URL" >&2; return 1 ;;
     esac
     printf '%s\n' "$url"
     return 0
@@ -149,7 +150,7 @@ fj_http() {
   local web token
   web=$(fj_web) || return 1
   token=$(fj_token) || return 1
-  set -- "$1" "$2" "${3:-}" "${4:-}" -sS --fail-with-body -X "$1" -H 'Accept: application/json'
+  set -- "$1" "$2" "${3:-}" "${4:-}" -sS --fail-with-body --connect-timeout 10 --max-time 30 -X "$1" -H 'Accept: application/json'
   [ -n "${FJ_HDR:-}" ] && set -- "$@" -D "$FJ_HDR"
   [ -n "$3" ] && set -- "$@" -H 'Content-Type: application/json' --data-binary "@$3"
   [ -n "$4" ] && set -- "$@" -F "attachment=@$4"
@@ -201,11 +202,14 @@ fj_list() {
       [ -z "$out_hdr" ] || cp "$t/h" "$out_hdr"
       echo "Forgejo API request failed: $1" >&2; rm -rf "$t"; return 1
     }
-    jq -e --arg k "${2:-}" 'if $k == "" then . else .[$k] end | if . == null then [] else . end | arrays' "$t/p" > "$t/a" 2>/dev/null ||
+    jq -e --arg k "${2:-}" 'if $k == "" then . elif type == "object" and has($k) then .[$k] else error("missing list envelope") end | if . == null then [] else . end | arrays' "$t/p" > "$t/a" 2>/dev/null ||
       { echo "Forgejo returned no list for $1" >&2; rm -rf "$t"; return 1; }
     jq -s '.[0] + .[1]' "$t/all" "$t/a" > "$t/n" && mv "$t/n" "$t/all"
     if grep -qi '^link:.*rel="next"' "$t/h" || grep -qi '^x-hasmore: *true' "$t/h"; then
-      [ "$page" -lt 200 ] || break
+      [ "$page" -lt 200 ] || {
+        echo "Forgejo pagination limit reached for $1; refusing a partial list" >&2
+        rm -rf "$t"; return 1
+      }
       page=$((page + 1))
     else
       break
@@ -300,6 +304,7 @@ def fj_closes($web; $repo):
 # Pull request → the GitHub-shaped PR object skills consume (field set: see get-pr).
 # $1 = PR number. FJ_PR_LIGHT=1 skips commits, files, and comments (list-prs uses it).
 # FJ_MERGEABLE_RECHECK_SECONDS (default 5) is the wait before re-reading mergeable=false.
+# Light list snapshots skip that wait; a later get-pr refreshes the merge gate.
 fj_pr_json() {
   local r web t light base sha f rc
   fj_num "$1" || return 1
@@ -307,7 +312,7 @@ fj_pr_json() {
   web=$(fj_web) || return 1
   t=$(mktemp -d) || return 1
   fj_get "repos/$r/pulls/$1" '.' > "$t/pr" || { rm -rf "$t"; return 1; }
-  if jq -e '(.draft != true) and (.mergeable == false) and (.state == "open")' "$t/pr" >/dev/null; then
+  if [ "${FJ_PR_LIGHT:-0}" != 1 ] && jq -e '(.draft != true) and (.mergeable == false) and (.state == "open")' "$t/pr" >/dev/null; then
     sleep "${FJ_MERGEABLE_RECHECK_SECONDS:-5}"
     fj_get "repos/$r/pulls/$1" '.' > "$t/pr" || { rm -rf "$t"; return 1; }
   fi
@@ -355,6 +360,7 @@ fj_pr_json() {
           elif $b == null then "UNKNOWN"
           elif $b.user_can_merge == false then "BLOCKED"
           elif ($b.protected == true) and ([$verdicts[] | select(.state == "APPROVED")] | length) < ($b.required_approvals // 0) then "BLOCKED"
+          elif ($b.enable_status_check == true) and (($st.state // "") | IN("success", "warning", "failure", "error", "pending") | not) then "UNKNOWN"
           elif ($b.enable_status_check == true) and (($st.state // "") | IN("failure", "error", "pending")) then "BLOCKED"
           else "CLEAN" end),
         reviewDecision: (
@@ -388,13 +394,18 @@ Every label mutation goes through an existence guard so a missing label degrades
 ```bash
 # Every label available to the repository: its own plus, for an organization owner, the org's.
 fj_labels() {
-  local r owner own org
+  local r owner own org hdr http_code
   r=$(fj_repo) || return 1
   owner=${r%%/*}
   own=$(fj_list "repos/$r/labels") || return 1
-  if fj_http GET "orgs/$owner" >/dev/null 2>&1; then
+  hdr=$(mktemp) || return 1
+  if FJ_HDR="$hdr" fj_http GET "orgs/$owner" >/dev/null 2>&1; then
+    rm -f "$hdr"
     org=$(fj_list "orgs/$owner/labels") || return 1
   else
+    http_code=$(FJ_HDR="$hdr" fj_status)
+    rm -f "$hdr"
+    [ "$http_code" = 404 ] || { echo "Could not read Forgejo organization $owner (HTTP $http_code)" >&2; return 1; }
     org='[]'
   fi
   jq -n --argjson a "$own" --argjson b "$org" '$a + $b'
@@ -434,7 +445,7 @@ apply_issue_label() { apply_label "$1" "$2"; }
 # Removal. A label that is not defined or not applied (404/422) is a no-op; any other
 # failure (403, 5xx, network) is an error, so a pipeline-label transition stops.
 remove_label() {
-  local id rc r hdr status
+  local id rc r hdr http_code
   if [ "$LABELS_ENABLED" != "true" ]; then return 0; fi
   fj_num "$2" || return 1
   id=$(fj_label_id "$1"); rc=$?
@@ -444,11 +455,11 @@ remove_label() {
   if FJ_HDR="$hdr" fj_http DELETE "repos/$r/issues/$2/labels/$id" >/dev/null 2>&1; then
     rm -f "$hdr"; return 0
   fi
-  status=$(FJ_HDR="$hdr" fj_status)
+  http_code=$(FJ_HDR="$hdr" fj_status)
   rm -f "$hdr"
-  case "$status" in
+  case "$http_code" in
     404|422) return 0 ;;
-    *) echo "Forgejo refused to remove label '$1' from #$2 (HTTP $status)" >&2; return 1 ;;
+    *) echo "Forgejo refused to remove label '$1' from #$2 (HTTP $http_code)" >&2; return 1 ;;
   esac
 }
 remove_issue_label() { remove_label "$1" "$2"; }
@@ -458,10 +469,11 @@ remove_issue_label() { remove_label "$1" "$2"; }
 # $1 = PR number, $2 = label.
 set_pipeline_label() {
   if [ "$LABELS_ENABLED" != "true" ]; then return 0; fi
-  for label in $PIPELINE_LABELS; do
+  printf '%s\n' "$PIPELINE_LABELS" | tr ' ' '\n' | while IFS= read -r label; do
+    [ -z "$label" ] && continue
     [ "$label" = "$2" ] && continue
-    remove_label "$label" "$1" || return 1
-  done
+    remove_label "$label" "$1" || exit 1
+  done || return 1
   apply_label "$2" "$1"
 }
 ```
@@ -557,7 +569,7 @@ Query and state (`open`, `closed`, or `all`) → matching issues (pull requests 
 ```bash
 Q=$(printf '%s' "<query>" | jq -sRr @uri)
 STATE=open   # open | closed | all
-fj_get "repos/$(fj_repo)/issues?type=issues&state=${STATE}&q=${Q}&limit=50" \
+fj_list_jq "repos/$(fj_repo)/issues?type=issues&state=${STATE}&q=${Q}" "" \
   '[.[] | {number, title, url: .html_url, state: (if .state == "open" then "OPEN" else "CLOSED" end)}]'
 ```
 
@@ -610,15 +622,15 @@ Always through the guards: `apply_issue_label "<label>" {issueId}` / `remove_iss
 Comment id → body, author, URL. Forgejo answers `204` with an empty body when the id belongs to an inline review comment, which shares the `#issuecomment-<id>` link shape with conversation comments. That is an error naming **get-review-comment**, never an empty comment.
 ```bash
 fj_get_comment() {
-  local hdr resp status
+  local hdr resp http_code
   fj_num "$1" || return 1
   hdr=$(mktemp) || return 1
   resp=$(FJ_HDR="$hdr" fj_http GET "repos/$(fj_repo)/issues/comments/$1") || {
     rm -f "$hdr"; echo "Forgejo API request failed: comment $1" >&2; return 1
   }
-  status=$(FJ_HDR="$hdr" fj_status)
+  http_code=$(FJ_HDR="$hdr" fj_status)
   rm -f "$hdr"
-  if [ "$status" = 204 ] || [ -z "$resp" ]; then
+  if [ "$http_code" = 204 ] || [ -z "$resp" ]; then
     echo "Comment $1 is an inline review comment, not a conversation comment: use get-review-comment with the PR number." >&2
     return 1
   fi
@@ -716,7 +728,7 @@ fj_search_prs() {
       found=$(fj_list_jq "repos/$r/issues/${1#\#}/timeline" "" -c '[.[] | select((.type == "pull_ref" or .type == "comment_ref") and (.ref_issue.pull_request != null))
         | .ref_issue | {number, title, html_url, state, merged: (.pull_request.merged // false)}] | unique_by(.number)') || return 1 ;;
     *)
-      found=$(fj_get "repos/$r/issues?type=pulls&state=all&q=$(printf '%s' "$1" | jq -sRr @uri)&limit=50" -c \
+      found=$(fj_list_jq "repos/$r/issues?type=pulls&state=all&q=$(printf '%s' "$1" | jq -sRr @uri)" "" -c \
         '[.[] | {number, title, html_url, state, merged: (.pull_request.merged // false)}]') || return 1 ;;
   esac
   printf '%s' "$found" | jq --arg s "${2:-open}" '[.[]
@@ -914,12 +926,13 @@ Forgejo links both kinds as `…/pulls/<n>#issuecomment-<id>`.
 - When it reports an inline review comment, use `fj_get_review_comment {prNumber} {commentId}`. There is no lookup by id alone, so it scans the PR's reviews.
 ```bash
 fj_get_review_comment() {
-  local r rid found
+  local r reviews rid found
   fj_num "$1" || return 1
   fj_num "$2" || return 1
   r=$(fj_repo) || return 1
-  for rid in $(fj_list_jq "repos/$r/pulls/$1/reviews" "" -r '.[] | select((.comments_count // 0) > 0) | .id'); do
-    found=$(fj_get "repos/$r/pulls/$1/reviews/$rid/comments" -c --argjson c "$2" \
+  reviews=$(fj_list_jq "repos/$r/pulls/$1/reviews" "" -r '.[] | select((.comments_count // 0) > 0) | .id') || return 1
+  for rid in $reviews; do
+    found=$(fj_list_jq "repos/$r/pulls/$1/reviews/$rid/comments" "" -c --argjson c "$2" \
       'first(.[] | select(.id == $c) | {body, user: .user.login, url: .html_url}) // empty') || return 1
     [ -n "$found" ] && { printf '%s\n' "$found"; return 0; }
   done
@@ -932,12 +945,20 @@ fj_get_review_comment {prNumber} {commentId}
 #### list-review-comments
 `{prNumber}` → every inline review comment on the diff (file, line, author, body), with Forgejo's `resolved` state. Forgejo does not expose reply threading through the API, so `reply_to` is always `null`. Group comments by `path` and `line` to reconstruct a thread.
 ```bash
-fj_num {prNumber} || exit 1
-R=$(fj_repo) || exit 1
-for rid in $(fj_list_jq "repos/$R/pulls/{prNumber}/reviews" "" -r '.[] | select((.comments_count // 0) > 0) | .id'); do
-  fj_get "repos/$R/pulls/{prNumber}/reviews/$rid/comments" -c '.[]' || exit 1
-done | jq -s '[.[] | {id, user: .user.login, path, line: (if (.position // 0) > 0 then .position else .original_position end),
-  body, url: .html_url, reply_to: null, resolved: (.resolver != null)}]'
+fj_review_comments() {
+  local r reviews rid t rc
+  fj_num "$1" || return 1
+  r=$(fj_repo) || return 1
+  reviews=$(fj_list_jq "repos/$r/pulls/$1/reviews" "" -r '.[] | select((.comments_count // 0) > 0) | .id') || return 1
+  t=$(mktemp) || return 1
+  for rid in $reviews; do
+    fj_list_jq "repos/$r/pulls/$1/reviews/$rid/comments" "" -c '.[]' >> "$t" || { rm -f "$t"; return 1; }
+  done
+  jq -s '[.[] | {id, user: .user.login, path, line: (if (.position // 0) > 0 then .position else .original_position end),
+    body, url: .html_url, reply_to: null, resolved: (.resolver != null)}]' "$t"
+  rc=$?; rm -f "$t"; return "$rc"
+}
+fj_review_comments {prNumber}
 ```
 
 ### CI runs
@@ -1014,7 +1035,7 @@ fi
 ```
 
 #### rerun-failed
-Run id → disambiguate a flaky failure before changing any code. Forgejo's API cannot re-run a job, which only the web UI can do. It can only dispatch a workflow again, and a dispatched run reports its statuses under a different event (`… (workflow_dispatch)`), so the PR's failed check stays red. The operation therefore has two modes, chosen by the switch below. Edit it in the repository's committed copy to change it.
+Run id → disambiguate a flaky failure before changing any code. Forgejo 16's API cannot re-run a job, which only the web UI can do. It can only dispatch a workflow again, and a dispatched run reports its statuses under a different event (`… (workflow_dispatch)`), so the PR's failed check stays red. Forgejo 17 adds native rerun endpoints. This descriptor retains the verified version-16 fallback for compatibility. The operation has two modes, chosen by the switch below. Edit it in the repository's committed copy to change it.
 - `report` (default): prints `RERUN_UNAVAILABLE <run link>` and exits 3. The caller records the failure as an unconfirmed flake and leaves the check for a human to re-run from the link. That is the only path that turns the same check green.
 - `dispatch`: re-dispatches the run's workflow file on the PR head branch (or the run's ref) and returns the new run in the **get-run** shape, ready for **watch-run**. This suits unattended orchestrators with no web access. It diagnoses only: the PR check stays red until a re-run from the UI or a new push. It needs `workflow_dispatch:` in the workflow's `on:` triggers and re-runs the whole workflow file, not only the failed jobs.
 ```bash

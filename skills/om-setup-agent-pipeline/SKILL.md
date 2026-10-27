@@ -5,7 +5,7 @@ description: One-time pipeline configurator. Inspects the repo (default branch, 
 
 # Setup Agent Pipeline
 
-Write `.ai/agentic.config.json` for the collection. Run this setup first in a fresh repository. Other skills point here when the config is missing.
+Write `.ai/agentic.config.json`. Run setup first in a fresh repository or when this config is missing.
 
 ## Arguments
 
@@ -72,13 +72,13 @@ Optional capability fields, defaults, owners, and loading snippets:
 - `engine.executorTier` — optional; the default abstract model tier (`cheap` / `standard` / `capable`) for executor subagents dispatched by the loop skills when a Tasks-table `Exec` cell names none. Harnesses that support subagent model selection map the tier onto their closest model class; others ignore it. Configs without the key behave as `standard`.
 - `engine.loopStepThreshold` — the Step count above which `om-auto-create-pr` hands a run off to `om-auto-create-pr-loop` (default 20). Raise it to keep more runs on the cheaper plain engine; `--loop` always forces the loop regardless.
 - `engine.stepReview` — optional; how often the loop skills code-review landed work mid-run: `final` (default — only the authoritative end-of-run review), `checkpoint` (review the diff at every checkpoint pass), or `per-step` (review each Step's commit as it lands). Blocker/major findings are fixed immediately as `X.Y-review-fix` Steps; minors defer to the final review, which runs in every mode.
-- `paths.runs` — where execution plans of autonomous runs are stored.
-- `paths.analysis` — where generated reports are stored.
+- `paths.runs` — execution plans for autonomous runs.
+- `paths.analysis` — generated reports.
 - `paths.specs` — specifications (default `.ai/specs`); filenames use `{YYYY-MM-DD}-{kebab-case-title}.md`, with handoff briefs under `<paths.specs>/briefs/`.
 - `paths.dataModel` — interactive data-model HTML views (default `.ai/data-model`); autonomous spec runs keep only the embedded Mermaid diagram.
 - `paths.prototypes` — local prototypes (default `.ai/prototypes`); do not add a setup question. Discovery uses `discovery/<slug>/`; producers create directories as needed.
 - `designTokens` — optional repo-relative snapshot, unset by default. Preserve it without asking.
-- `paths.scripts` — where reusable environment scripts are generated (default `.ai/scripts`); `om-prepare-test-env` writes the env bring-up/teardown scripts here.
+- `paths.scripts` — reusable environment scripts (default `.ai/scripts`); `om-prepare-test-env` writes bring-up/teardown scripts here.
 - `paths.qa` — where QA working state and artifacts live (default `.ai/qa`): the shared `test-env.json` descriptor, and QA reports/screenshots under `<paths.qa>/artifacts_<runId>/`.
 - `reviewChecklist` — optional path to a repo-local review checklist file. When set, the `om-code-review` skill reads it in addition to its built-in checklist. A root `CODE_REVIEW.md` (see Project docs) is always picked up regardless.
 - `closeKeywords` — optional extra issue-closing words, e.g. `["zamyka", "naprawia", "rozwiązuje"]`. Extend the built-in English `fix`/`close`/`resolve` variants; never replace them. Match case-insensitively immediately before `#N`. The tracker's `closingIssuesReferences` is English-only; unmatched mentions are reported. Default `[]` keeps English behavior.

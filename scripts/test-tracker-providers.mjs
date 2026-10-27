@@ -603,9 +603,9 @@ const fjFixturesFile = join(fjWork, "fixtures.json");
 writeFileSync(fjFixturesFile, JSON.stringify(fjFixtures));
 const fjLog = join(fjWork, "calls.log");
 
-const runForgejo = (script, env = {}, { stub = true } = {}) => {
+const runForgejo = (script, env = {}, { stub = true, shell = "bash" } = {}) => {
   writeFileSync(fjLog, "");
-  const result = spawnSync("bash", ["-c", `${forgejoShell}\n${stub ? fjStubShell : ""}\n${script}`], {
+  const result = spawnSync(shell, ["-c", `${forgejoShell}\n${stub ? fjStubShell : ""}\n${script}`], {
     encoding: "utf8",
     env: {
       ...process.env, FJ_STUB: fjStub, FJ_LOG: fjLog, FJ_FIXTURES: fjFixturesFile,
@@ -662,6 +662,12 @@ try {
   assert.match(readFileSync(join(fjWork, "curl.stdin"), "utf8"), /Authorization: token s3cret/);
   assert.match(readFileSync(join(fjWork, "curl.argv"), "utf8"), /--fail-with-body .*https:\/\/fj\.example\/api\/v1\/user/);
 
+  assert.match(readFileSync(join(fjWork, "curl.argv"), "utf8"), /--connect-timeout 10/);
+  assert.match(readFileSync(join(fjWork, "curl.argv"), "utf8"), /--max-time 30/);
+  const badRemote = runForgejo("fj_parse_remote 'http://user:fake-secret@fj.example/o/r'");
+  assert.notEqual(badRemote.status, 0);
+  assert.doesNotMatch(badRemote.stdout + badRemote.stderr, /fake-secret/);
+
   // --- get-pr: the GitHub-shaped serialization skills parse -----------------
   const full = runForgejo("fj_pr_json 7");
   assert.equal(full.status, 0, full.stderr);
@@ -713,7 +719,7 @@ try {
   // Merge state derivation.
   const pr7 = fjFixtures[`GET ${RP}/pulls/7`];
   const mergeState = (prOverride, more = {}) => {
-    const res = withForgejo({ [`GET ${RP}/pulls/7`]: { ...pr7, ...prOverride }, ...more }, "fj_pr_json 7", { FJ_PR_LIGHT: "1" });
+    const res = withForgejo({ [`GET ${RP}/pulls/7`]: { ...pr7, ...prOverride }, ...more }, "fj_pr_json 7");
     assert.equal(res.status, 0, res.stderr);
     const out = JSON.parse(res.stdout);
     return [out.mergeable, out.mergeStateStatus, res.calls.filter((call) => call.path === `${RP}/pulls/7`).length];
@@ -760,6 +766,16 @@ try {
   const envelope = runForgejo(`fj_list "${RP}/actions/runs?head_sha=abcdef1" workflow_runs`);
   assert.deepEqual(JSON.parse(envelope.stdout).map((run) => run.id), [900]);
   assert.notEqual(runForgejo(`fj_list "${RP}/actions/runs/900"`).status, 0, "an object where a list is expected is an error");
+  const missingEnvelope = withForgejo({ [`GET ${RP}/actions/runs`]: {} }, `fj_list "${RP}/actions/runs" workflow_runs`);
+  assert.notEqual(missingEnvelope.status, 0, "a missing list envelope is not an empty list");
+  assert.equal(missingEnvelope.stdout, "");
+
+  const capped = withForgejo({
+    [`GET ${RP}/labels`]: { __headers: 'X-HasMore: true\r\n', __body: [{ id: 1 }] },
+  }, `fj_list "${RP}/labels"`);
+  assert.notEqual(capped.status, 0, "a pagination cap cannot return a partial successful list");
+  assert.equal(capped.stdout, "");
+  assert.match(capped.stderr, /pagination.*limit/i);
 
   // --- PR lists and search ----------------------------------------------------
   const listed = withForgejo({ [`GET ${RP}/pulls`]: [{ number: 7, updated_at: "2026-09-02T10:00:00Z", merged: false }] }, "fj_list_prs open 10");
@@ -776,6 +792,33 @@ try {
   assert.deepEqual(JSON.parse(search.stdout), [{ number: 7, title: "feat: thing", url: "https://fj.example/o/r/pulls/7", state: "OPEN" }]);
   assert.deepEqual(JSON.parse(runForgejo('fj_search_prs "#3" merged').stdout).map((item) => item.number), [5]);
   assert.ok(!search.calls.some((call) => /[?&]q=/.test(call.path)), "an issue reference must not depend on the search indexer");
+
+  const textSearch = withForgejo({
+    [`GET ${RP}/issues?type=pulls&state=all&q=plan&limit=50&page=1`]: {
+      __headers: 'Link: <https://fj.example/next>; rel="next"\r\n', __body: [] },
+    [`GET ${RP}/issues?type=pulls&state=all&q=plan&limit=50&page=2`]: [
+      { number: 77, title: "existing", state: "open", html_url: "https://fj.example/o/r/pulls/77" }],
+  }, 'fj_search_prs plan open');
+  assert.equal(textSearch.status, 0, textSearch.stderr);
+  assert.deepEqual(JSON.parse(textSearch.stdout).map(x => x.number), [77]);
+  const lostReviews = runForgejo("fj_review_comments 7", { FJ_FAIL_KEY: `GET ${RP}/pulls/7/reviews` });
+  assert.notEqual(lostReviews.status, 0, "unreadable review feedback must not become an empty list");
+  assert.equal(lostReviews.stdout, "");
+  const inlineFeedback = withForgejo({
+    [`GET ${RP}/pulls/7/reviews/5/comments`]: [{ id: 88, user: { login: "frank" }, path: "a.md", position: 4, body: "fix", html_url: "https://fj.example/comment", resolver: null }],
+  }, "fj_review_comments 7");
+  assert.equal(inlineFeedback.status, 0, inlineFeedback.stderr);
+  assert.equal(JSON.parse(inlineFeedback.stdout)[0].id, 88);
+  const lightConflict = withForgejo({
+    [`GET ${RP}/pulls/7`]: { ...fjFixtures[`GET ${RP}/pulls/7`], mergeable: false },
+  }, "FJ_PR_LIGHT=1 fj_pr_json 7");
+  assert.equal(lightConflict.status, 0, lightConflict.stderr);
+  assert.equal(lightConflict.calls.filter(x => x.path === `${RP}/pulls/7`).length, 1, "list snapshots must not wait and re-read each conflicting PR");
+  const lostStatus = withForgejo({
+    [`GET ${RP}/branches/main`]: { enable_status_check: true, user_can_merge: true },
+    [`GET ${RP}/commits/abcdef1/status`]: { __status: 500, __body: {} },
+  }, "fj_pr_json 7");
+  assert.equal(JSON.parse(lostStatus.stdout).mergeStateStatus, "UNKNOWN");
 
   // --- issues -----------------------------------------------------------------
   const issue = JSON.parse(runForgejo("fj_issue_json 3").stdout);
@@ -802,6 +845,12 @@ try {
   assert.deepEqual(applied.writes.map((call) => [call.method, call.path, JSON.parse(call.body)]), [
     ["POST", `${RP}/issues/7/labels`, { labels: [11] }],
   ]);
+  const orgFailure = runForgejo("apply_label review 7", { FJ_FAIL_KEY: "GET orgs/o" });
+  assert.notEqual(orgFailure.status, 0, "an organization lookup error must block label writes");
+  assert.equal(orgFailure.writes.length, 0);
+  const userOwner = withForgejo({ ["GET orgs/o"]: { __status: 404, __body: {} } }, "fj_labels");
+  assert.equal(userOwner.status, 0, userOwner.stderr);
+  assert.deepEqual(JSON.parse(userOwner.stdout).map(x => x.id), [11, 12, 13]);
   const orgLabel = runForgejo("apply_label priority-high 7");
   assert.deepEqual(JSON.parse(orgLabel.writes[0].body), { labels: [21] }, "organization labels satisfy the guard");
   const missing = runForgejo("apply_label nope 7");
@@ -822,6 +871,12 @@ try {
     ["DELETE", `${RP}/issues/7/labels/12`],
     ["POST", `${RP}/issues/7/labels`],
   ]);
+
+  if (spawnSync("zsh", ["--version"]).status === 0) {
+    const nativeGuard = runForgejo("set_pipeline_label 7 merge-queue", {}, { shell: "zsh" });
+    assert.equal(nativeGuard.status, 0, nativeGuard.stderr);
+    assert.deepEqual(nativeGuard.writes.map(x => [x.method, x.path]), pipeline.writes.map(x => [x.method, x.path]));
+  }
 
   // --- CI ---------------------------------------------------------------------------
   const checks = runForgejo("fj_pr_checks 7");
