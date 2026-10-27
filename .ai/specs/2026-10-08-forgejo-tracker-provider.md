@@ -27,6 +27,8 @@ Ship a stand-alone provider in the same shape as #122:
 
 **The guiding rule is to do what `gitlab.md` does unless the Forgejo API forbids it.** Every deviation is listed under Architecture, so the reviewer reads one diff against a known shape.
 
+The API baseline is Forgejo 16.0.3. Statements that an API is unavailable refer to that baseline. [Forgejo 17 adds native workflow and job rerun endpoints](https://forgejo.codeberg.page/2026-10-release-v17-0/). This design retains the verified version-16 fallback; native version-17 reruns are a separate enhancement.
+
 ### Resolved decisions
 
 | Id | Decision | Why |
@@ -167,7 +169,7 @@ One new file, `skills/om-setup-agent-pipeline/references/trackers/forgejo.md`, s
 
 ## 📋 Phasing
 
-One PR, as in #122. The parity test forbids shipping a partial stand-alone provider, so `forgejo` joins the parity set in the last phase.
+One implementation PR, separate from this design PR, as in #122. The parity test forbids shipping a partial stand-alone provider, so `forgejo` joins the parity set in the last phase.
 
 ## 📋 Implementation Plan
 
