@@ -139,6 +139,10 @@ PR: #134
 - [x] 10.2 Run the full validation gate — 3c280ac (5/5 green)
 - [x] Review autofix (PR #134): BLOCKED on unmet required approvals, Actions-runs read errors no longer reported as external CI, credentials stripped from https remotes — 5821877
 
-## 2026-10-27 maintainer review and carry-forward
+- [x] Post-review fix: preserve complete Forgejo reads, bounded requests, and portable guards — 44c1417
 
-The operator authorized review and autofix. The fork is carried forward with original authorship, after merging current base `b6885a8`. Setup and upgrade-note conflicts retain both sides. Regression fixes make pagination fail explicitly at its cap, propagate org/review-read errors, preserve unknown CI evidence, paginate free-text searches, make label transitions portable to zsh, bound HTTP calls, and redact rejected remote URLs. Light PR lists skip per-item mergeability waits. The setup prose was shortened to meet the size gate. Forgejo 17 rerun additions are documented without changing the verified version-16 fallback. Fresh live verification is not claimed; the original live record remains historical evidence.
+## 2026-10-27 maintainer review and autofix
+
+The operator authorized review and autofix. Maintainer edits are enabled. The operator authorized autofix, so normal follow-up commits update the original fork branch and retain its PR number and authorship. The current base `b6885a8` is merged. Setup and upgrade-note conflicts retain both sides. Regression fixes make pagination fail explicitly at its cap, propagate org/review-read errors, preserve unknown CI evidence, paginate free-text searches, make label transitions portable to zsh, bound HTTP calls, and redact rejected remote URLs. Light PR lists skip per-item mergeability waits. The setup prose was shortened to meet the size gate. Forgejo 17 rerun additions are documented without changing the verified version-16 fallback. Fresh live verification is not claimed; the original live record remains historical evidence.
+
+All six configured commands pass on the final implementation, including the extended tracker regressions and 39 UX tests. The only remaining change in this record is review metadata. The documented live checks remain historical evidence; self-hosted 16.0.3 has no runner, so its dispatch case was verified on Codeberg instead.
